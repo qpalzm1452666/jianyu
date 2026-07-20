@@ -18,21 +18,21 @@ local AuraTab = Window:Tab({ Title = "杀戮光环", Icon = "crosshair" })
 
 AuraTab:Toggle({
     Title = "启用杀戮光环",
-    Desc = "开启后自动锁定最近敌人",
+    Desc = "未知",
     Value = false,
     Callback = function(v) _G.AuraEnabled = v end
 })
 
 AuraTab:Slider({
     Title = "锁定范围",
-    Desc = "搜索敌人的最大距离",
+    Desc = "顾名思义",
     Value = { Min = 10, Max = 200, Default = 50 },
     Callback = function(v) _G.AuraRange = v end
 })
 
 AuraTab:Slider({
     Title = "平滑度",
-    Desc = "越小越柔，越大越硬",
+    Desc = "拉满就锁 拉低不锁",
     Value = { Min = 5, Max = 100, Default = 15 },
     Callback = function(v) _G.AuraSmooth = v / 100 end
 })
@@ -41,7 +41,7 @@ local EspTab = Window:Tab({ Title = "绘制", Icon = "eye" })
 
 EspTab:Toggle({
     Title = "启用绘制",
-    Desc = "显示所有人方框、名字、血条，队友白色敌人蓝色",
+    Desc = "总开关",
     Value = false,
     Callback = function(v) _G.EspEnabled = v end
 })

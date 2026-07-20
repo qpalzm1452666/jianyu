@@ -41,7 +41,7 @@ local EspTab = Window:Tab({ Title = "绘制", Icon = "eye" })
 
 EspTab:Toggle({
     Title = "启用绘制",
-    Desc = "显示敌人方框、名字、血条",
+    Desc = "显示所有人方框、名字、血条，队友白色敌人蓝色",
     Value = false,
     Callback = function(v) _G.EspEnabled = v end
 })
@@ -243,9 +243,10 @@ local function UpdateESP()
                 if hrp and hum and hum.Health > 0 then
                     local pos, onScreen = camera:WorldToScreenPoint(hrp.Position)
                     local dist = (camera.CFrame.Position - hrp.Position).Magnitude
-                    if onScreen and dist <= MAX_DIST and not IsSameTeam(plr) then
+                    if onScreen and dist <= MAX_DIST then
                         shouldHide = false
-                        local boxColor = BOX_COLOR_ENEMY
+                        local isTeammate = IsSameTeam(plr)
+                        local boxColor = isTeammate and BOX_COLOR_TEAM or BOX_COLOR_ENEMY
                         local size = hrp.Size.Y
                         local scaleFactor = (size * camera.ViewportSize.Y) / (pos.Z * 2)
                         local w = 3 * scaleFactor

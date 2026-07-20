@@ -37,68 +37,20 @@ AuraTab:Slider({
     Callback = function(v) _G.AuraSmooth = v / 100 end
 })
 
-AuraTab:Toggle({
-    Title = "队伍检测",
-    Desc = "跳过队友，只锁定敌人",
-    Value = true,
-    Callback = function(v) _G.AuraTeamCheck = v end
-})
-
-AuraTab:Toggle({
-    Title = "可见性检测",
-    Desc = "只锁定视野内可见的敌人",
-    Value = true,
-    Callback = function(v) _G.AuraVisCheck = v end
-})
-
 local EspTab = Window:Tab({ Title = "绘制", Icon = "eye" })
 
 EspTab:Toggle({
     Title = "启用绘制",
-    Desc = "总开关",
+    Desc = "显示敌人方框、名字、血条",
     Value = false,
     Callback = function(v) _G.EspEnabled = v end
-})
-
-EspTab:Toggle({
-    Title = "方框",
-    Desc = "敌人方框透视",
-    Value = true,
-    Callback = function(v) _G.EspBox = v end
-})
-
-EspTab:Toggle({
-    Title = "名字",
-    Desc = "显示玩家名字和距离",
-    Value = true,
-    Callback = function(v) _G.EspName = v end
-})
-
-EspTab:Toggle({
-    Title = "血条",
-    Desc = "显示血条和血量百分比",
-    Value = true,
-    Callback = function(v) _G.EspHealth = v end
-})
-
-EspTab:Slider({
-    Title = "绘制范围",
-    Desc = "超过此距离不绘制",
-    Value = { Min = 50, Max = 5000, Default = 500 },
-    Callback = function(v) _G.EspRange = v end
 })
 
 _G.AuraEnabled = false
 _G.AuraRange = 50
 _G.AuraSmooth = 0.15
-_G.AuraTeamCheck = true
-_G.AuraVisCheck = true
 
 _G.EspEnabled = false
-_G.EspBox = true
-_G.EspName = true
-_G.EspHealth = true
-_G.EspRange = 500
 
 local MAX_DIST = 5000
 local BOX_COLOR_TEAM = Color3.fromRGB(255, 255, 255)
@@ -106,7 +58,6 @@ local BOX_COLOR_ENEMY = Color3.fromRGB(0, 150, 255)
 local FONT_SIZE = 11
 
 local function IsSameTeam(targetPlr)
-    if _G.AuraTeamCheck == false then return false end
     if player.Team and targetPlr.Team then
         if player.Team == targetPlr.Team then return true end
     end
@@ -162,13 +113,11 @@ local function FindBestTarget()
         local humanoid = char:FindFirstChildOfClass("Humanoid")
         if head and humanoid and humanoid.Health > 0 then
             local dist = (head.Position - myPos).Magnitude
-            if dist <= _G.AuraRange then
-                if (not _G.AuraVisCheck) or IsVisible(head) then
-                    if dist < bestDist then
-                        bestDist = dist
-                        bestTarget = head
-                        bestPlr = plr
-                    end
+            if dist <= _G.AuraRange and IsVisible(head) then
+                if dist < bestDist then
+                    bestDist = dist
+                    bestTarget = head
+                    bestPlr = plr
                 end
             end
         end
@@ -187,7 +136,7 @@ local function IsTargetValid(target, targetPlr)
     if not myHrp then return false end
     local dist = (target.Position - myHrp.Position).Magnitude
     if dist > _G.AuraRange then return false end
-    if _G.AuraVisCheck and not IsVisible(target) then return false end
+    if not IsVisible(target) then return false end
     return true
 end
 
@@ -286,7 +235,7 @@ local function UpdateESP()
     for plr, elements in pairs(ESP.PlayerElements) do
         pcall(function()
             local shouldHide = true
-            if plr and plr.Character then
+            if _G.EspEnabled and plr and plr.Character then
                 local char = plr.Character
                 local hrp = char:FindFirstChild("HumanoidRootPart")
                 local hum = char:FindFirstChildOfClass("Humanoid")
@@ -294,61 +243,46 @@ local function UpdateESP()
                 if hrp and hum and hum.Health > 0 then
                     local pos, onScreen = camera:WorldToScreenPoint(hrp.Position)
                     local dist = (camera.CFrame.Position - hrp.Position).Magnitude
-                    if onScreen and dist <= _G.EspRange and _G.EspEnabled and not IsSameTeam(plr) then
+                    if onScreen and dist <= MAX_DIST and not IsSameTeam(plr) then
                         shouldHide = false
-                        local boxColor = IsSameTeam(plr) and BOX_COLOR_TEAM or BOX_COLOR_ENEMY
+                        local boxColor = BOX_COLOR_ENEMY
                         local size = hrp.Size.Y
                         local scaleFactor = (size * camera.ViewportSize.Y) / (pos.Z * 2)
                         local w = 3 * scaleFactor
                         local h = 4.5 * scaleFactor
                         local fadeTrans = math.clamp(dist / MAX_DIST, 0, 0.85)
-                        if _G.EspBox then
-                            elements.Box.Position = UDim2.new(0, pos.X - w/2, 0, pos.Y - h/2)
-                            elements.Box.Size = UDim2.new(0, w, 0, h)
-                            elements.Box.Visible = true
-                            elements.Box.BackgroundTransparency = 0.75 + fadeTrans * 0.15
-                            elements.Box.BackgroundColor3 = boxColor
-                            elements.Outline.Enabled = true
-                            elements.Outline.Transparency = fadeTrans
-                            elements.Outline.Color = boxColor
-                        else
-                            elements.Box.Visible = false
-                            elements.Outline.Enabled = false
-                        end
-                        if _G.EspName then
-                            elements.Name.Text = plr.Name .. string.format(" [%dm]", math.floor(dist))
-                            elements.Name.Position = UDim2.new(0, pos.X, 0, pos.Y - h/2 - 9)
-                            elements.Name.TextColor3 = boxColor
-                            elements.Name.TextTransparency = fadeTrans
-                            elements.Name.TextStrokeTransparency = fadeTrans
-                            elements.Name.Visible = true
-                        else
-                            elements.Name.Visible = false
-                        end
+                        elements.Box.Position = UDim2.new(0, pos.X - w/2, 0, pos.Y - h/2)
+                        elements.Box.Size = UDim2.new(0, w, 0, h)
+                        elements.Box.Visible = true
+                        elements.Box.BackgroundTransparency = 0.75 + fadeTrans * 0.15
+                        elements.Box.BackgroundColor3 = boxColor
+                        elements.Outline.Enabled = true
+                        elements.Outline.Transparency = fadeTrans
+                        elements.Outline.Color = boxColor
+                        elements.Name.Text = plr.Name .. string.format(" [%dm]", math.floor(dist))
+                        elements.Name.Position = UDim2.new(0, pos.X, 0, pos.Y - h/2 - 9)
+                        elements.Name.TextColor3 = boxColor
+                        elements.Name.TextTransparency = fadeTrans
+                        elements.Name.TextStrokeTransparency = fadeTrans
+                        elements.Name.Visible = true
                         elements.Distance.Visible = false
-                        if _G.EspHealth then
-                            local healthRatio = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
-                            local barW = 2.5
-                            local barX = pos.X - w/2 - 6
-                            elements.BehindHealth.Position = UDim2.new(0, barX, 0, pos.Y - h/2)
-                            elements.BehindHealth.Size = UDim2.new(0, barW, 0, h)
-                            elements.BehindHealth.BackgroundTransparency = fadeTrans
-                            elements.BehindHealth.Visible = true
-                            elements.Healthbar.Position = UDim2.new(0, barX, 0, pos.Y - h/2 + h * (1 - healthRatio))
-                            elements.Healthbar.Size = UDim2.new(0, barW, 0, h * healthRatio)
-                            elements.Healthbar.BackgroundTransparency = fadeTrans
-                            elements.Healthbar.Visible = true
-                            local healthPercent = math.floor(healthRatio * 100)
-                            elements.HealthText.Position = UDim2.new(0, barX, 0, pos.Y - h/2 + h * (1 - healthPercent/100) + 3)
-                            elements.HealthText.Text = tostring(healthPercent) .. "%"
-                            elements.HealthText.TextTransparency = fadeTrans
-                            elements.HealthText.TextStrokeTransparency = fadeTrans
-                            elements.HealthText.Visible = (hum.Health < hum.MaxHealth)
-                        else
-                            elements.BehindHealth.Visible = false
-                            elements.Healthbar.Visible = false
-                            elements.HealthText.Visible = false
-                        end
+                        local healthRatio = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+                        local barW = 2.5
+                        local barX = pos.X - w/2 - 6
+                        elements.BehindHealth.Position = UDim2.new(0, barX, 0, pos.Y - h/2)
+                        elements.BehindHealth.Size = UDim2.new(0, barW, 0, h)
+                        elements.BehindHealth.BackgroundTransparency = fadeTrans
+                        elements.BehindHealth.Visible = true
+                        elements.Healthbar.Position = UDim2.new(0, barX, 0, pos.Y - h/2 + h * (1 - healthRatio))
+                        elements.Healthbar.Size = UDim2.new(0, barW, 0, h * healthRatio)
+                        elements.Healthbar.BackgroundTransparency = fadeTrans
+                        elements.Healthbar.Visible = true
+                        local healthPercent = math.floor(healthRatio * 100)
+                        elements.HealthText.Position = UDim2.new(0, barX, 0, pos.Y - h/2 + h * (1 - healthPercent/100) + 3)
+                        elements.HealthText.Text = tostring(healthPercent) .. "%"
+                        elements.HealthText.TextTransparency = fadeTrans
+                        elements.HealthText.TextStrokeTransparency = fadeTrans
+                        elements.HealthText.Visible = (hum.Health < hum.MaxHealth)
                     end
                 end
             end

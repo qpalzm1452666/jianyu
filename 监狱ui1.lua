@@ -18,39 +18,91 @@ local AuraTab = Window:Tab({ Title = "杀戮光环", Icon = "crosshair" })
 
 AuraTab:Toggle({
     Title = "启用杀戮光环",
-    Desc = "未知",
     Value = false,
     Callback = function(v) _G.AuraEnabled = v end
 })
 
 AuraTab:Slider({
     Title = "锁定范围",
-    Desc = "顾名思义",
     Value = { Min = 10, Max = 200, Default = 50 },
     Callback = function(v) _G.AuraRange = v end
 })
 
 AuraTab:Slider({
     Title = "平滑度",
-    Desc = "拉满就锁 拉低不锁",
     Value = { Min = 5, Max = 100, Default = 15 },
     Callback = function(v) _G.AuraSmooth = v / 100 end
+})
+
+AuraTab:Toggle({
+    Title = "持续锁定",
+    Value = false,
+    Callback = function(v) _G.AuraLock = v end
+})
+
+AuraTab:Dropdown({
+    Title = "优先条件",
+    Values = {"距离优先", "血量优先", "视角优先"},
+    Value = "距离优先",
+    Callback = function(v) _G.AuraPriority = v end
 })
 
 local EspTab = Window:Tab({ Title = "绘制", Icon = "eye" })
 
 EspTab:Toggle({
     Title = "启用绘制",
-    Desc = "总开关",
     Value = false,
     Callback = function(v) _G.EspEnabled = v end
+})
+
+local BulletTab = Window:Tab({ Title = "子追", Icon = "target" })
+
+BulletTab:Toggle({
+    Title = "启用子弹追踪",
+    Value = false,
+    Callback = function(v) BulletConfig.Enabled = v end
+})
+
+BulletTab:Slider({
+    Title = "追踪角度范围",
+    Value = { Min = 10, Max = 180, Default = 60 },
+    Callback = function(v) BulletConfig.FOV = v end
+})
+
+BulletTab:Dropdown({
+    Title = "优先条件",
+    Values = {"FOV优先", "距离优先", "综合评分"},
+    Value = "FOV优先",
+    Callback = function(v) BulletConfig.Priority = v end
+})
+
+BulletTab:Toggle({
+    Title = "启用预判",
+    Value = false,
+    Callback = function(v) BulletConfig.Prediction = v end
+})
+
+BulletTab:Slider({
+    Title = "预判系数",
+    Value = { Min = 5, Max = 50, Default = 15 },
+    Callback = function(v) BulletConfig.PredictionFactor = v / 100 end
 })
 
 _G.AuraEnabled = false
 _G.AuraRange = 50
 _G.AuraSmooth = 0.15
+_G.AuraLock = false
+_G.AuraPriority = "距离优先"
 
 _G.EspEnabled = false
+
+local BulletConfig = {
+    Enabled = false,
+    FOV = 60,
+    Priority = "FOV优先",
+    Prediction = false,
+    PredictionFactor = 0.15,
+}
 
 local MAX_DIST = 5000
 local BOX_COLOR_TEAM = Color3.fromRGB(255, 255, 255)
@@ -94,50 +146,74 @@ local function IsVisible(targetPart)
 end
 
 local lockedTarget = nil
-local lockedPlayer = nil
 
 local function FindBestTarget()
     local myChar = player.Character
-    if not myChar then return nil, nil end
+    if not myChar then return nil end
     local myHrp = myChar:FindFirstChild("HumanoidRootPart")
-    if not myHrp then return nil, nil end
+    if not myHrp then return nil end
     local myPos = myHrp.Position
-    local bestDist = math.huge
-    local bestTarget, bestPlr = nil, nil
+    local cameraPos = Camera.CFrame.Position
+    local cameraDir = Camera.CFrame.LookVector
+    local bestTarget = nil
+    local bestScore = math.huge
+
+    if _G.AuraLock and lockedTarget then
+        local stillValid = false
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= player and plr.Character then
+                local char = plr.Character
+                local head = char:FindFirstChild("Head")
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+                if head and humanoid and humanoid.Health > 0 then
+                    if head == lockedTarget or (head.Position - lockedTarget.Position).Magnitude < 0.1 then
+                        if (head.Position - myPos).Magnitude <= _G.AuraRange and IsVisible(head) then
+                            bestTarget = head
+                            stillValid = true
+                        end
+                        break
+                    end
+                end
+            end
+        end
+        if stillValid then return bestTarget end
+        lockedTarget = nil
+    end
+
     for _, plr in ipairs(Players:GetPlayers()) do
-        if plr == player then continue end
-        if IsSameTeam(plr) then continue end
-        if not plr.Character then continue end
-        local char = plr.Character
-        local head = char:FindFirstChild("Head")
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if head and humanoid and humanoid.Health > 0 then
-            local dist = (head.Position - myPos).Magnitude
-            if dist <= _G.AuraRange and IsVisible(head) then
-                if dist < bestDist then
-                    bestDist = dist
-                    bestTarget = head
-                    bestPlr = plr
+        if plr ~= player and plr.Character then
+            local char = plr.Character
+            local head = char:FindFirstChild("Head")
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            if head and humanoid and humanoid.Health > 0 then
+                if IsSameTeam(plr) then continue end
+                local dist = (head.Position - myPos).Magnitude
+                if dist <= _G.AuraRange and IsVisible(head) then
+                    local score
+                    if _G.AuraPriority == "距离优先" then
+                        score = dist
+                    elseif _G.AuraPriority == "血量优先" then
+                        score = humanoid.Health
+                    elseif _G.AuraPriority == "视角优先" then
+                        local toTarget = (head.Position - cameraPos).Unit
+                        local angle = math.deg(math.acos(math.clamp(cameraDir:Dot(toTarget), -1, 1)))
+                        score = angle
+                    else
+                        score = dist
+                    end
+                    if score < bestScore then
+                        bestScore = score
+                        bestTarget = head
+                    end
                 end
             end
         end
     end
-    return bestTarget, bestPlr
-end
 
-local function IsTargetValid(target, targetPlr)
-    if not target or not targetPlr then return false end
-    if not targetPlr.Character or target.Parent ~= targetPlr.Character then return false end
-    local hum = targetPlr.Character:FindFirstChildOfClass("Humanoid")
-    if not hum or hum.Health <= 0 then return false end
-    local myChar = player.Character
-    if not myChar then return false end
-    local myHrp = myChar:FindFirstChild("HumanoidRootPart")
-    if not myHrp then return false end
-    local dist = (target.Position - myHrp.Position).Magnitude
-    if dist > _G.AuraRange then return false end
-    if not IsVisible(target) then return false end
-    return true
+    if bestTarget and _G.AuraLock then
+        lockedTarget = bestTarget
+    end
+    return bestTarget
 end
 
 local ESP = { ScreenGui = nil, PlayerElements = {} }
@@ -335,20 +411,149 @@ end
 CreateScreenGui()
 InitEvents()
 
+local BulletFOV_Circle = Drawing.new("Circle")
+BulletFOV_Circle.Visible = false
+BulletFOV_Circle.Radius = 60
+BulletFOV_Circle.Color = Color3.fromRGB(255, 255, 255)
+BulletFOV_Circle.Thickness = 1
+BulletFOV_Circle.Transparency = 1
+BulletFOV_Circle.Filled = false
+BulletFOV_Circle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+Camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+    BulletFOV_Circle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+end)
+
+local BulletTargetText = Drawing.new("Text")
+BulletTargetText.Visible = false
+BulletTargetText.Size = 13
+BulletTargetText.Color = Color3.fromRGB(255, 255, 255)
+BulletTargetText.Outline = true
+BulletTargetText.OutlineColor = Color3.fromRGB(0, 0, 0)
+BulletTargetText.Center = false
+BulletTargetText.Font = Drawing.Fonts.UI
+
+local function getClosestHead()
+    local bestHead = nil
+    local bestScore = math.huge
+    local cameraDirection = Camera.CFrame.LookVector
+    local cameraPos = Camera.CFrame.Position
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character then
+            local char = plr.Character
+            local head = char:FindFirstChild("Head")
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            local forcefield = char:FindFirstChild("ForceField")
+            if head and humanoid and not forcefield and humanoid.Health > 0 then
+                local targetPos = head.Position
+                if BulletConfig.Prediction then
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        local velocity = hrp.Velocity
+                        targetPos = head.Position + velocity * BulletConfig.PredictionFactor
+                    end
+                end
+                local directionToHead = (targetPos - cameraPos).Unit
+                local angle = math.deg(math.acos(math.clamp(cameraDirection:Dot(directionToHead), -1, 1)))
+                if angle <= BulletConfig.FOV then
+                    local worldDist = (targetPos - cameraPos).Magnitude
+                    local score
+                    if BulletConfig.Priority == "FOV优先" then
+                        score = angle
+                    elseif BulletConfig.Priority == "距离优先" then
+                        score = worldDist
+                    elseif BulletConfig.Priority == "综合评分" then
+                        score = angle * 0.7 + worldDist * 0.3
+                    else
+                        score = angle
+                    end
+                    if score < bestScore then
+                        bestScore = score
+                        bestHead = head
+                    end
+                end
+            end
+        end
+    end
+    return bestHead
+end
+
+local oldHook
+pcall(function()
+    oldHook = hookmetamethod(game, "__namecall", function(self, ...)
+        local method = getnamecallmethod()
+        local args = {...}
+        if BulletConfig.Enabled and (method == "Raycast" or method == "FindPartOnRay") and not checkcaller() and self == Workspace then
+            local origin, direction
+            if method == "Raycast" then
+                origin = args[1]
+                direction = args[2]
+            else
+                local ray = args[1]
+                if typeof(ray) == "Ray" then
+                    origin = ray.Origin
+                    direction = ray.Direction
+                end
+            end
+            if origin and direction then
+                local closestHead = getClosestHead()
+                if closestHead then
+                    local targetPos = closestHead.Position
+                    if BulletConfig.Prediction then
+                        local char = closestHead.Parent
+                        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                        if hrp then
+                            targetPos = closestHead.Position + hrp.Velocity * BulletConfig.PredictionFactor
+                        end
+                    end
+                    return {
+                        Instance = closestHead,
+                        Position = targetPos,
+                        Normal = (targetPos - origin).Unit,
+                        Material = Enum.Material.Plastic
+                    }
+                end
+            end
+        end
+        return oldHook(self, ...)
+    end)
+end)
+
 RunService.RenderStepped:Connect(function()
     if _G.AuraEnabled then
-        if not IsTargetValid(lockedTarget, lockedPlayer) then
-            lockedTarget, lockedPlayer = FindBestTarget()
-        end
-        if lockedTarget then
+        local target = FindBestTarget()
+        if target then
             local camPos = Camera.CFrame.Position
-            local targetLook = (lockedTarget.Position - camPos).Unit
+            local targetLook = (target.Position - camPos).Unit
             local currentLook = Camera.CFrame.LookVector
             local smoothedLook = currentLook:Lerp(targetLook, _G.AuraSmooth)
             Camera.CFrame = CFrame.new(camPos, camPos + smoothedLook)
         end
     else
-        lockedTarget, lockedPlayer = nil, nil
+        lockedTarget = nil
     end
+
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    BulletFOV_Circle.Visible = BulletConfig.Enabled
+    BulletFOV_Circle.Radius = BulletConfig.FOV
+    BulletFOV_Circle.Position = screenCenter
+    if BulletConfig.Enabled then
+        local closestHead = getClosestHead()
+        if closestHead and closestHead.Parent then
+            local targetPlayer = Players:GetPlayerFromCharacter(closestHead.Parent)
+            if targetPlayer then
+                BulletTargetText.Text = "追踪: " .. targetPlayer.Name
+                BulletTargetText.Visible = true
+                BulletTargetText.Position = Vector2.new(Camera.ViewportSize.X / 2 + BulletConfig.FOV + 10, Camera.ViewportSize.Y / 2 - 6)
+            else
+                BulletTargetText.Visible = false
+            end
+        else
+            BulletTargetText.Visible = false
+        end
+    else
+        BulletTargetText.Visible = false
+    end
+
     UpdateESP()
 end)

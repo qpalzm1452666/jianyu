@@ -4,7 +4,6 @@ local Workspace = game:GetService("Workspace")
 local player = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- ==================== WindUI ====================
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 
 local Window = WindUI:CreateWindow({
@@ -15,7 +14,6 @@ local Window = WindUI:CreateWindow({
     Size = UDim2.new(0, 580, 0, 420),
 })
 
--- ========== Tab: 杀戮光环 ==========
 local AuraTab = Window:Tab({ Title = "杀戮光环", Icon = "crosshair" })
 
 AuraTab:Toggle({
@@ -53,7 +51,6 @@ AuraTab:Toggle({
     Callback = function(v) _G.AuraVisCheck = v end
 })
 
--- ========== Tab: 绘制 ==========
 local EspTab = Window:Tab({ Title = "绘制", Icon = "eye" })
 
 EspTab:Toggle({
@@ -71,34 +68,26 @@ EspTab:Toggle({
 })
 
 EspTab:Toggle({
-    Title = "线条",
-    Desc = "从屏幕中心到敌人的连线",
+    Title = "名字",
+    Desc = "显示玩家名字和距离",
     Value = true,
-    Callback = function(v) _G.EspLine = v end
+    Callback = function(v) _G.EspName = v end
 })
 
 EspTab:Toggle({
-    Title = "血量",
-    Desc = "显示敌人血量文字",
+    Title = "血条",
+    Desc = "显示血条和血量百分比",
     Value = true,
     Callback = function(v) _G.EspHealth = v end
-})
-
-EspTab:Toggle({
-    Title = "距离",
-    Desc = "显示与敌人的距离",
-    Value = false,
-    Callback = function(v) _G.EspDist = v end
 })
 
 EspTab:Slider({
     Title = "绘制范围",
     Desc = "超过此距离不绘制",
-    Value = { Min = 50, Max = 1000, Default = 500 },
+    Value = { Min = 50, Max = 5000, Default = 500 },
     Callback = function(v) _G.EspRange = v end
 })
 
--- ==================== 默认值 ====================
 _G.AuraEnabled = false
 _G.AuraRange = 50
 _G.AuraSmooth = 0.15
@@ -107,12 +96,15 @@ _G.AuraVisCheck = true
 
 _G.EspEnabled = false
 _G.EspBox = true
-_G.EspLine = true
+_G.EspName = true
 _G.EspHealth = true
-_G.EspDist = false
 _G.EspRange = 500
 
--- ==================== 队伍检测 ====================
+local MAX_DIST = 5000
+local BOX_COLOR_TEAM = Color3.fromRGB(255, 255, 255)
+local BOX_COLOR_ENEMY = Color3.fromRGB(0, 150, 255)
+local FONT_SIZE = 11
+
 local function IsSameTeam(targetPlr)
     if _G.AuraTeamCheck == false then return false end
     if player.Team and targetPlr.Team then
@@ -138,7 +130,6 @@ local function IsSameTeam(targetPlr)
     return false
 end
 
--- ==================== 可见性检测 ====================
 local function IsVisible(targetPart)
     if not targetPart then return false end
     local origin = Camera.CFrame.Position
@@ -151,7 +142,6 @@ local function IsVisible(targetPart)
     return result.Instance:IsDescendantOf(targetPart.Parent)
 end
 
--- ==================== 杀戮光环核心 ====================
 local lockedTarget = nil
 local lockedPlayer = nil
 
@@ -163,7 +153,6 @@ local function FindBestTarget()
     local myPos = myHrp.Position
     local bestDist = math.huge
     local bestTarget, bestPlr = nil, nil
-
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr == player then continue end
         if IsSameTeam(plr) then continue end
@@ -202,63 +191,216 @@ local function IsTargetValid(target, targetPlr)
     return true
 end
 
--- ==================== 绘制核心 ====================
-local Drawing = Drawing or {}
-local EspObjects = {} -- [Player] = {box, line, healthText, distText}
+local ESP = { ScreenGui = nil, PlayerElements = {} }
 
-local function GetEspColor(plr)
-    if plr.Team and player.Team and plr.Team == player.Team then
-        return Color3.fromRGB(0, 255, 0)
+local function CreateScreenGui()
+    if ESP.ScreenGui then return end
+    ESP.ScreenGui = Instance.new("ScreenGui")
+    ESP.ScreenGui.Name = "ESP_Draw"
+    ESP.ScreenGui.Parent = game:GetService("CoreGui")
+    ESP.ScreenGui.ResetOnSpawn = false
+    ESP.ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+end
+
+local function CreateESPForPlayer(plr)
+    if ESP.PlayerElements[plr] then return end
+    if not ESP.ScreenGui then return end
+    local sg = ESP.ScreenGui
+    local elements = {}
+    elements.Box = Instance.new("Frame")
+    elements.Box.Parent = sg
+    elements.Box.BackgroundColor3 = BOX_COLOR_ENEMY
+    elements.Box.BackgroundTransparency = 0.75
+    elements.Box.BorderSizePixel = 0
+    elements.Box.Visible = false
+    elements.Box.ZIndex = 10
+    elements.Outline = Instance.new("UIStroke")
+    elements.Outline.Parent = elements.Box
+    elements.Outline.Enabled = true
+    elements.Outline.Transparency = 0
+    elements.Outline.Color = BOX_COLOR_ENEMY
+    elements.Outline.LineJoinMode = Enum.LineJoinMode.Miter
+    elements.Outline.Thickness = 1
+    elements.Name = Instance.new("TextLabel")
+    elements.Name.Parent = sg
+    elements.Name.BackgroundTransparency = 1
+    elements.Name.TextColor3 = BOX_COLOR_ENEMY
+    elements.Name.Font = Enum.Font.Code
+    elements.Name.TextSize = FONT_SIZE
+    elements.Name.TextStrokeTransparency = 0
+    elements.Name.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    elements.Name.RichText = true
+    elements.Name.Visible = false
+    elements.Name.ZIndex = 11
+    elements.Distance = Instance.new("TextLabel")
+    elements.Distance.Parent = sg
+    elements.Distance.BackgroundTransparency = 1
+    elements.Distance.TextColor3 = Color3.fromRGB(255, 255, 255)
+    elements.Distance.Font = Enum.Font.Code
+    elements.Distance.TextSize = FONT_SIZE
+    elements.Distance.TextStrokeTransparency = 0
+    elements.Distance.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    elements.Distance.RichText = true
+    elements.Distance.Visible = false
+    elements.Distance.ZIndex = 11
+    elements.BehindHealth = Instance.new("Frame")
+    elements.BehindHealth.Parent = sg
+    elements.BehindHealth.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    elements.BehindHealth.BackgroundTransparency = 0
+    elements.BehindHealth.BorderSizePixel = 0
+    elements.BehindHealth.Visible = false
+    elements.BehindHealth.ZIndex = 9
+    elements.Healthbar = Instance.new("Frame")
+    elements.Healthbar.Parent = sg
+    elements.Healthbar.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+    elements.Healthbar.BackgroundTransparency = 0
+    elements.Healthbar.BorderSizePixel = 0
+    elements.Healthbar.Visible = false
+    elements.Healthbar.ZIndex = 10
+    elements.HealthText = Instance.new("TextLabel")
+    elements.HealthText.Parent = sg
+    elements.HealthText.BackgroundTransparency = 1
+    elements.HealthText.TextColor3 = Color3.fromRGB(255, 255, 255)
+    elements.HealthText.Font = Enum.Font.Code
+    elements.HealthText.TextSize = FONT_SIZE
+    elements.HealthText.TextStrokeTransparency = 0
+    elements.HealthText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    elements.HealthText.Visible = false
+    elements.HealthText.ZIndex = 11
+    ESP.PlayerElements[plr] = elements
+end
+
+local function DestroyESPForPlayer(plr)
+    local elements = ESP.PlayerElements[plr]
+    if elements then
+        for _, v in pairs(elements) do
+            if v then pcall(function() v:Destroy() end) end
+        end
+        ESP.PlayerElements[plr] = nil
     end
-    return Color3.fromRGB(255, 50, 50)
 end
 
-local function CreateEsp(plr)
-    local box = Drawing.new("Square")
-    box.Visible = false
-    box.Thickness = 1.5
-    box.Filled = false
-    box.Color = GetEspColor(plr)
-
-    local line = Drawing.new("Line")
-    line.Visible = false
-    line.Thickness = 1
-    line.Color = GetEspColor(plr)
-
-    local healthText = Drawing.new("Text")
-    healthText.Visible = false
-    healthText.Size = 13
-    healthText.Center = true
-    healthText.Outline = true
-    healthText.Color = Color3.fromRGB(255, 255, 255)
-
-    local distText = Drawing.new("Text")
-    distText.Visible = false
-    distText.Size = 13
-    distText.Center = true
-    distText.Outline = true
-    distText.Color = Color3.fromRGB(200, 200, 200)
-
-    EspObjects[plr] = {box = box, line = line, healthText = healthText, distText = distText}
-end
-
-local function RemoveEsp(plr)
-    local obj = EspObjects[plr]
-    if obj then
-        for _, d in pairs(obj) do d:Remove() end
-        EspObjects[plr] = nil
+local function UpdateESP()
+    local camera = workspace.CurrentCamera
+    if not camera then return end
+    for plr, elements in pairs(ESP.PlayerElements) do
+        pcall(function()
+            local shouldHide = true
+            if plr and plr.Character then
+                local char = plr.Character
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local head = char:FindFirstChild("Head")
+                if hrp and hum and hum.Health > 0 then
+                    local pos, onScreen = camera:WorldToScreenPoint(hrp.Position)
+                    local dist = (camera.CFrame.Position - hrp.Position).Magnitude
+                    if onScreen and dist <= _G.EspRange and _G.EspEnabled and not IsSameTeam(plr) then
+                        shouldHide = false
+                        local boxColor = IsSameTeam(plr) and BOX_COLOR_TEAM or BOX_COLOR_ENEMY
+                        local size = hrp.Size.Y
+                        local scaleFactor = (size * camera.ViewportSize.Y) / (pos.Z * 2)
+                        local w = 3 * scaleFactor
+                        local h = 4.5 * scaleFactor
+                        local fadeTrans = math.clamp(dist / MAX_DIST, 0, 0.85)
+                        if _G.EspBox then
+                            elements.Box.Position = UDim2.new(0, pos.X - w/2, 0, pos.Y - h/2)
+                            elements.Box.Size = UDim2.new(0, w, 0, h)
+                            elements.Box.Visible = true
+                            elements.Box.BackgroundTransparency = 0.75 + fadeTrans * 0.15
+                            elements.Box.BackgroundColor3 = boxColor
+                            elements.Outline.Enabled = true
+                            elements.Outline.Transparency = fadeTrans
+                            elements.Outline.Color = boxColor
+                        else
+                            elements.Box.Visible = false
+                            elements.Outline.Enabled = false
+                        end
+                        if _G.EspName then
+                            elements.Name.Text = plr.Name .. string.format(" [%dm]", math.floor(dist))
+                            elements.Name.Position = UDim2.new(0, pos.X, 0, pos.Y - h/2 - 9)
+                            elements.Name.TextColor3 = boxColor
+                            elements.Name.TextTransparency = fadeTrans
+                            elements.Name.TextStrokeTransparency = fadeTrans
+                            elements.Name.Visible = true
+                        else
+                            elements.Name.Visible = false
+                        end
+                        elements.Distance.Visible = false
+                        if _G.EspHealth then
+                            local healthRatio = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+                            local barW = 2.5
+                            local barX = pos.X - w/2 - 6
+                            elements.BehindHealth.Position = UDim2.new(0, barX, 0, pos.Y - h/2)
+                            elements.BehindHealth.Size = UDim2.new(0, barW, 0, h)
+                            elements.BehindHealth.BackgroundTransparency = fadeTrans
+                            elements.BehindHealth.Visible = true
+                            elements.Healthbar.Position = UDim2.new(0, barX, 0, pos.Y - h/2 + h * (1 - healthRatio))
+                            elements.Healthbar.Size = UDim2.new(0, barW, 0, h * healthRatio)
+                            elements.Healthbar.BackgroundTransparency = fadeTrans
+                            elements.Healthbar.Visible = true
+                            local healthPercent = math.floor(healthRatio * 100)
+                            elements.HealthText.Position = UDim2.new(0, barX, 0, pos.Y - h/2 + h * (1 - healthPercent/100) + 3)
+                            elements.HealthText.Text = tostring(healthPercent) .. "%"
+                            elements.HealthText.TextTransparency = fadeTrans
+                            elements.HealthText.TextStrokeTransparency = fadeTrans
+                            elements.HealthText.Visible = (hum.Health < hum.MaxHealth)
+                        else
+                            elements.BehindHealth.Visible = false
+                            elements.Healthbar.Visible = false
+                            elements.HealthText.Visible = false
+                        end
+                    end
+                end
+            end
+            if shouldHide then
+                elements.Box.Visible = false
+                elements.Outline.Enabled = false
+                elements.Name.Visible = false
+                elements.Distance.Visible = false
+                elements.BehindHealth.Visible = false
+                elements.Healthbar.Visible = false
+                elements.HealthText.Visible = false
+            end
+        end)
+    end
+    for plr, _ in pairs(ESP.PlayerElements) do
+        if not Players:FindFirstChild(plr.Name) then
+            DestroyESPForPlayer(plr)
+        end
     end
 end
 
-for _, plr in ipairs(Players:GetPlayers()) do
-    if plr ~= player then CreateEsp(plr) end
+local function InitEvents()
+    Players.PlayerAdded:Connect(function(plr)
+        if plr == player then return end
+        CreateESPForPlayer(plr)
+        plr.CharacterAdded:Connect(function()
+            task.wait(0.1)
+            if not ESP.PlayerElements[plr] then
+                CreateESPForPlayer(plr)
+            end
+        end)
+    end)
+    Players.PlayerRemoving:Connect(function(plr)
+        DestroyESPForPlayer(plr)
+    end)
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player then
+            CreateESPForPlayer(plr)
+            plr.CharacterAdded:Connect(function()
+                task.wait(0.1)
+                if not ESP.PlayerElements[plr] then
+                    CreateESPForPlayer(plr)
+                end
+            end)
+        end
+    end
 end
-Players.PlayerAdded:Connect(function(plr) if plr ~= player then CreateEsp(plr) end end)
-Players.PlayerRemoving:Connect(RemoveEsp)
 
--- ==================== 主循环 ====================
+CreateScreenGui()
+InitEvents()
+
 RunService.RenderStepped:Connect(function()
-    -- ===== 杀戮光环 =====
     if _G.AuraEnabled then
         if not IsTargetValid(lockedTarget, lockedPlayer) then
             lockedTarget, lockedPlayer = FindBestTarget()
@@ -273,72 +415,5 @@ RunService.RenderStepped:Connect(function()
     else
         lockedTarget, lockedPlayer = nil, nil
     end
-
-    -- ===== 绘制 =====
-    local myChar = player.Character
-    local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
-    local myPos = myHrp and myHrp.Position or Vector3.zero
-
-    for plr, obj in pairs(EspObjects) do
-        local char = plr.Character
-        local head = char and char:FindFirstChild("Head")
-        local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-
-        local shouldShow = _G.EspEnabled and char and head and humanoid and humanoid.Health > 0
-        if shouldShow then
-            local dist = (head.Position - myPos).Magnitude
-            shouldShow = dist <= _G.EspRange and not IsSameTeam(plr)
-        end
-
-        if shouldShow then
-            local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
-            if onScreen then
-                local size = 3000 / pos.Z
-                size = math.clamp(size, 20, 150)
-
-                -- 方框
-                if _G.EspBox then
-                    obj.box.Visible = true
-                    obj.box.Size = Vector2.new(size, size * 1.4)
-                    obj.box.Position = Vector2.new(pos.X - size / 2, pos.Y - size * 0.7)
-                    obj.box.Color = GetEspColor(plr)
-                else
-                    obj.box.Visible = false
-                end
-
-                -- 线条
-                if _G.EspLine then
-                    obj.line.Visible = true
-                    obj.line.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
-                    obj.line.To = Vector2.new(pos.X, pos.Y)
-                    obj.line.Color = GetEspColor(plr)
-                else
-                    obj.line.Visible = false
-                end
-
-                -- 血量
-                if _G.EspHealth then
-                    obj.healthText.Visible = true
-                    obj.healthText.Position = Vector2.new(pos.X, pos.Y - size * 0.7 - 15)
-                    obj.healthText.Text = math.floor(humanoid.Health) .. "/" .. math.floor(humanoid.MaxHealth)
-                else
-                    obj.healthText.Visible = false
-                end
-
-                -- 距离
-                if _G.EspDist then
-                    obj.distText.Visible = true
-                    obj.distText.Position = Vector2.new(pos.X, pos.Y + size * 0.7 + 2)
-                    obj.distText.Text = string.format("%.0fm", dist)
-                else
-                    obj.distText.Visible = false
-                end
-            else
-                for _, d in pairs(obj) do d.Visible = false end
-            end
-        else
-            for _, d in pairs(obj) do d.Visible = false end
-        end
-    end
+    UpdateESP()
 end)
